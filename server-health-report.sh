@@ -2,6 +2,33 @@
 set -o pipefail
 REPORT="/root/server-health-report-$(date +%Y%m%d-%H%M%S).txt"
 exec > >(tee "$REPORT") 2>&1
+
+# Privacy-friendly telemetry is OFF by default. Set TELEMETRY_URL and
+# TELEMETRY_ENABLED=true explicitly if you operate a collector and want usage counts.
+TELEMETRY_ENABLED="${TELEMETRY_ENABLED:-false}"
+TELEMETRY_URL="${TELEMETRY_URL:-}"
+TELEMETRY_ID_FILE="/var/lib/server-health-performance/install-id"
+
+send_telemetry() {
+    [ "$TELEMETRY_ENABLED" = "true" ] || return 0
+    [ -n "$TELEMETRY_URL" ] || return 0
+    command -v curl >/dev/null 2>&1 || return 0
+    mkdir -p "$(dirname "$TELEMETRY_ID_FILE")" 2>/dev/null || return 0
+    if [ ! -s "$TELEMETRY_ID_FILE" ]; then
+        if command -v uuidgen >/dev/null 2>&1; then uuidgen > "$TELEMETRY_ID_FILE";
+        else cat /proc/sys/kernel/random/uuid > "$TELEMETRY_ID_FILE" 2>/dev/null || return 0; fi
+        chmod 600 "$TELEMETRY_ID_FILE" 2>/dev/null || true
+    fi
+    local id os family version
+    id=$(cat "$TELEMETRY_ID_FILE" 2>/dev/null)
+    os=$(uname -s 2>/dev/null)
+    family=$(awk -F= "/^ID=/{gsub(/\"/,"",\$2); print \$2}" /etc/os-release 2>/dev/null)
+    version=$(awk -F= "/^VERSION_ID=/{gsub(/\"/,"",\$2); print \$2}" /etc/os-release 2>/dev/null)
+    curl -fsS --max-time 5 -X POST -H "Content-Type: application/json" \
+      --data "{"install_id":"$id","os":"$os","distro":"$family","version":"$version","script_version":"1.0.0"}" \
+      "$TELEMETRY_URL" >/dev/null 2>&1 || true
+}
+
 section(){ echo; echo "============================================================"; echo " $1"; echo "============================================================"; }
 echo "SERVER HEALTH & PERFORMANCE REPORT"; echo "Generated: $(date)"; echo "Hostname: $(hostname 2>/dev/null)"; uptime
 section "SYSTEM"; hostnamectl 2>/dev/null || true; uname -a
@@ -32,3 +59,5 @@ section "LARGE DIRECTORIES"; du -xhd1 / 2>/dev/null | sort -h | tail -20 || true
 section "LARGE FILES"; find /var /home /tmp -xdev -type f -size +500M -print0 2>/dev/null | xargs -0 -r ls -lhS 2>/dev/null | head -30 || true
 section "SECURITY"; echo "SELinux:"; getenforce 2>/dev/null || true; echo "Firewalld:"; systemctl is-active firewalld 2>/dev/null || true
 section "HEALTH SUMMARY"; MEM=$(free | awk "/Mem:/ {printf "%.1f", \$3/\$2*100}"); DISK=$(df -P / | awk "NR==2 {gsub("%","",\$5); print \$5}"); Z=$(ps -e -o state= | grep -c Z || true); F=$(systemctl --failed --no-legend 2>/dev/null | wc -l); echo "RAM: $MEM%"; echo "Root disk: $DISK%"; echo "Zombie: $Z"; echo "Failed units: $F"; echo; echo "Report saved: $REPORT"
+
+send_telemetry
