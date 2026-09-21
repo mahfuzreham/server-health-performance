@@ -186,6 +186,44 @@ server-health-performance/
 └── README.md
 ```
 
+
+## 🗑️ Uninstall / Remove
+
+If you want to completely remove the checker from a server, first remove the daily cron entry (if you added one), then delete the script and local reports:
+
+```bash
+crontab -e
+```
+
+Remove the line containing:
+
+```text
+/root/server-health-report.sh --daily
+```
+
+Then run:
+
+```bash
+rm -f /root/server-health-report.sh
+rm -rf /var/log/server-health-performance
+rm -f /root/server-health-report-*.txt
+```
+
+If you installed the script somewhere else, remove that copy instead.
+
+### One-command removal
+
+For the default installation used in this README:
+
+```bash
+crontab -l 2>/dev/null | grep -vF '/root/server-health-report.sh --daily' | crontab -
+rm -f /root/server-health-report.sh
+rm -rf /var/log/server-health-performance
+rm -f /root/server-health-report-*.txt
+```
+
+> This removes the checker, its daily cron entry, and locally generated reports. It does **not** modify or remove your server's other services or configuration.
+
 ## 🤝 Contributing
 
 Bug reports, improvements and pull requests are welcome.
